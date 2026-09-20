@@ -12,9 +12,6 @@ jobs:
 
     steps:
 
-      # ============================================================
-      # CREATE PROJECT
-      # ============================================================
       - name: Create Android project
         run: |
           mkdir -p app/src/main/java/com/ahmedsadek/gtabc2s
@@ -61,8 +58,8 @@ jobs:
                   applicationId "com.ahmedsadek.gtabc2s"
                   minSdk 26
                   targetSdk 35
-                  versionCode 3
-                  versionName "1.2"
+                  versionCode 5
+                  versionName "1.4"
               }
 
               buildTypes {
@@ -97,9 +94,6 @@ jobs:
           EOF
 
 
-      # ============================================================
-      # VECTOR / LIBXPOSED API 102 METADATA
-      # ============================================================
       - name: Create Xposed metadata
         run: |
 
@@ -107,7 +101,6 @@ jobs:
           com.ahmedsadek.gtabc2s.GTabHomeC2S
           EOF
 
-          # system = system_server scope for Vector / libxposed
           cat > app/src/main/resources/META-INF/xposed/scope.list <<'EOF'
           system
           EOF
@@ -121,19 +114,16 @@ jobs:
           EOF
 
 
-      # ============================================================
-      # MODULE
-      # ============================================================
       - name: Create module
         run: |
 
           cat > app/src/main/java/com/ahmedsadek/gtabc2s/GTabHomeC2S.java <<'EOF'
           package com.ahmedsadek.gtabc2s;
 
-          import android.content.Context;
+          import android.os.SystemClock;
           import android.util.Log;
 
-          import java.lang.reflect.Field;
+          import java.lang.reflect.Constructor;
           import java.lang.reflect.Method;
 
           import io.github.libxposed.api.XposedInterface;
@@ -144,11 +134,24 @@ jobs:
 
               private static final String TAG = "GTabHomeC2S";
 
+              private long lastLaunchTime = 0;
+
+              private void info(String message) {
+                  log(Log.INFO, TAG, message);
+                  Log.i(TAG, message);
+              }
+
+              private void error(String message, Throwable t) {
+                  log(Log.ERROR, TAG, message, t);
+                  Log.e(TAG, message, t);
+              }
+
+
               @Override
               public void onModuleLoaded(
                       XposedModuleInterface.ModuleLoadedParam param) {
 
-                  Log.i(TAG, "MODULE LOADED");
+                  info("MODULE LOADED: " + param.getProcessName());
               }
 
 
@@ -156,408 +159,301 @@ jobs:
               public void onSystemServerStarting(
                       XposedModuleInterface.SystemServerStartingParam param) {
 
-                  Log.i(TAG, "SYSTEM SERVER STARTING");
+                  info("SYSTEM SERVER STARTING");
 
                   try {
 
-                      ClassLoader classLoader =
-                              param.getClassLoader();
+                      ClassLoader cl = param.getClassLoader();
 
-                      Class<?> targetClass =
-                              classLoader.loadClass(
-                                      "com.android.server.policy.PhoneWindowManager$DisplayHomeButtonHandler"
-                              );
-
-                      Log.i(
-                              TAG,
-                              "TARGET CLASS FOUND: "
-                                      + targetClass.getName()
+                      Class<?> handlerClass = cl.loadClass(
+                              "com.android.server.policy.PhoneWindowManager$DisplayHomeButtonHandler"
                       );
 
-
-                      boolean found = false;
+                      info("HOME HANDLER FOUND");
 
 
                       /*
-                       * Do NOT assume the parameters.
+                       * IMPORTANT:
                        *
-                       * Android branches have used:
+                       * The services.jar supplied by the user contains:
                        *
+                       * handleHomeButton(IBinder, KeyEvent)
                        * handleLongPressOnHome(KeyEvent)
                        *
-                       * and:
+                       * and several lambda methods.
                        *
-                       * handleLongPressOnHome(int,long)
-                       *
-                       * so we hook every method with this name.
+                       * Deoptimize the whole small handler class so ART
+                       * cannot inline handleLongPressOnHome into its callers.
                        */
+                      for (Method m : handlerClass.getDeclaredMethods()) {
 
-                      for (Method method :
-                              targetClass.getDeclaredMethods()) {
+                          try {
+                              boolean result = deoptimize(m);
 
-                          if (!method.getName()
-                                  .equals("handleLongPressOnHome")) {
+                              info(
+                                      "DEOPTIMIZE "
+                                              + m.getName()
+                                              + " = "
+                                              + result
+                              );
+
+                          } catch (Throwable t) {
+
+                              error(
+                                      "DEOPTIMIZE FAILED: "
+                                              + m.getName(),
+                                      t
+                              );
+                          }
+                      }
+
+
+                      boolean hookInstalled = false;
+
+
+                      for (Method m :
+                              handlerClass.getDeclaredMethods()) {
+
+                          if (!m.getName().equals(
+                                  "handleLongPressOnHome")) {
                               continue;
                           }
 
-                          found = true;
 
-                          method.setAccessible(true);
+                          Class<?>[] params =
+                                  m.getParameterTypes();
 
-                          Log.i(
-                                  TAG,
+
+                          if (params.length != 1) {
+                              continue;
+                          }
+
+
+                          m.setAccessible(true);
+
+
+                          info(
                                   "TARGET METHOD FOUND: "
-                                          + method.toGenericString()
+                                          + m.toGenericString()
                           );
 
 
-                          hook(method).intercept(
-                                  chain -> {
+                          hook(m)
+                                  .setPriority(
+                                          XposedInterface.PRIORITY_HIGHEST
+                                  )
+                                  .intercept(chain -> {
 
-                                      Log.i(
-                                              TAG,
-                                              "HOME LONG PRESS CALLED"
+                                      info(
+                                              "HOME LONG PRESS INTERCEPTED"
                                       );
 
-                                      try {
 
-                                          Object handler =
-                                                  chain.getThisObject();
-
-                                          Context context =
-                                                  findPhoneWindowManagerContext(
-                                                          handler
-                                                  );
+                                      return startContextualSearch(cl);
+                                  });
 
 
-                                          if (context == null) {
-
-                                              Log.e(
-                                                      TAG,
-                                                      "CONTEXT NOT FOUND"
-                                              );
-
-                                              return null;
-                                          }
+                          hookInstalled = true;
 
 
-                                          Object contextualSearch =
-                                                  context.getSystemService(
-                                                          "contextual_search"
-                                                  );
-
-
-                                          if (contextualSearch == null) {
-
-                                              Log.e(
-                                                      TAG,
-                                                      "CONTEXTUAL SEARCH SERVICE NULL"
-                                              );
-
-                                              return null;
-                                          }
-
-
-                                          Method startMethod = null;
-
-
-                                          for (Method m :
-                                                  contextualSearch
-                                                          .getClass()
-                                                          .getMethods()) {
-
-                                              if (!m.getName()
-                                                      .equals(
-                                                              "startContextualSearch"
-                                                      )) {
-                                                  continue;
-                                              }
-
-                                              Class<?>[] params =
-                                                      m.getParameterTypes();
-
-                                              if (params.length == 1
-                                                      && params[0]
-                                                      == int.class) {
-
-                                                  startMethod = m;
-                                                  break;
-                                              }
-                                          }
-
-
-                                          if (startMethod == null) {
-
-                                              Log.e(
-                                                      TAG,
-                                                      "startContextualSearch(int) NOT FOUND"
-                                              );
-
-                                              return null;
-                                          }
-
-
-                                          Log.i(
-                                                  TAG,
-                                                  "START CONTEXTUAL SEARCH ENTRYPOINT=2"
-                                          );
-
-
-                                          startMethod.setAccessible(true);
-
-
-                                          /*
-                                           * Android Contextual Search:
-                                           *
-                                           * ENTRYPOINT_LONG_PRESS_HOME = 2
-                                           */
-                                          startMethod.invoke(
-                                                  contextualSearch,
-                                                  2
-                                          );
-
-
-                                          Log.i(
-                                                  TAG,
-                                                  "CONTEXTUAL SEARCH STARTED"
-                                          );
-
-
-                                          /*
-                                           * IMPORTANT:
-                                           *
-                                           * Do not call chain.proceed().
-                                           *
-                                           * This prevents the original
-                                           * Gemini/Assistant long press
-                                           * action from executing.
-                                           */
-                                          return null;
-
-
-                                      } catch (Throwable t) {
-
-                                          Log.e(
-                                                  TAG,
-                                                  "HOME HOOK ERROR",
-                                                  t
-                                          );
-
-                                          return null;
-                                      }
-                                  }
-                          );
-
-
-                          Log.i(
-                                  TAG,
-                                  "HOOK INSTALLED"
-                          );
+                          info("HOME HOOK INSTALLED");
                       }
 
 
-                      if (!found) {
+                      if (!hookInstalled) {
 
-                          Log.e(
-                                  TAG,
-                                  "handleLongPressOnHome NOT FOUND"
+                          error(
+                                  "handleLongPressOnHome NOT FOUND",
+                                  new NoSuchMethodException(
+                                          "handleLongPressOnHome"
+                                  )
                           );
+
+                      } else {
+
+                          info("MODULE READY");
                       }
 
 
                   } catch (Throwable t) {
 
-                      Log.e(
-                              TAG,
-                              "INIT ERROR",
+                      error(
+                              "SYSTEM SERVER INIT ERROR",
                               t
                       );
                   }
               }
 
 
-              /*
-               * DisplayHomeButtonHandler is an inner class of
-               * PhoneWindowManager.
-               *
-               * The handler contains synthetic field:
-               *
-               * this$0
-               *
-               * which points to PhoneWindowManager.
-               *
-               * PhoneWindowManager contains mContext.
-               */
-              private static Context
-              findPhoneWindowManagerContext(
-                      Object handler) {
+              private Object startContextualSearch(
+                      ClassLoader cl) {
+
+                  long now =
+                          SystemClock.uptimeMillis();
+
+
+                  /*
+                   * Prevent accidental double invocation.
+                   */
+                  if (now - lastLaunchTime < 1200) {
+
+                      info(
+                              "DUPLICATE C2S INVOCATION SUPPRESSED"
+                      );
+
+                      return null;
+                  }
+
+
+                  lastLaunchTime = now;
+
 
                   try {
 
-                      if (handler == null) {
-                          return null;
-                      }
-
-
-                      Field outerField =
-                              findField(
-                                      handler.getClass(),
-                                      "this$0"
+                      /*
+                       * We deliberately use reflection here.
+                       *
+                       * ContextualSearchManager is a hidden/SystemApi
+                       * class and may not be exposed by the normal
+                       * compile SDK android.jar.
+                       */
+                      Class<?> managerClass =
+                              cl.loadClass(
+                                      "android.app.contextualsearch.ContextualSearchManager"
                               );
 
 
-                      if (outerField == null) {
-                          return null;
-                      }
+                      info(
+                              "CONTEXTUAL SEARCH MANAGER FOUND"
+                      );
 
 
-                      Object phoneWindowManager =
-                              outerField.get(handler);
+                      Constructor<?> constructor =
+                              managerClass.getDeclaredConstructor();
 
 
-                      if (phoneWindowManager == null) {
-                          return null;
-                      }
+                      constructor.setAccessible(true);
 
 
-                      Field contextField =
-                              findField(
-                                      phoneWindowManager.getClass(),
-                                      "mContext"
+                      Object manager =
+                              constructor.newInstance();
+
+
+                      Method startMethod =
+                              managerClass.getDeclaredMethod(
+                                      "startContextualSearch",
+                                      int.class
                               );
 
 
-                      if (contextField == null) {
-                          return null;
-                      }
+                      startMethod.setAccessible(true);
 
 
-                      Object value =
-                              contextField.get(
-                                      phoneWindowManager
-                              );
+                      /*
+                       * Android:
+                       *
+                       * ENTRYPOINT_LONG_PRESS_HOME = 2
+                       */
+                      info(
+                              "START CONTEXTUAL SEARCH: ENTRYPOINT=2"
+                      );
 
 
-                      if (value instanceof Context) {
+                      startMethod.invoke(
+                              manager,
+                              2
+                      );
 
-                          return (Context) value;
-                      }
+
+                      info(
+                              "CONTEXTUAL SEARCH STARTED"
+                      );
 
 
                   } catch (Throwable t) {
 
-                      Log.e(
-                              TAG,
-                              "CONTEXT LOOKUP ERROR",
+                      error(
+                              "CONTEXTUAL SEARCH ERROR",
                               t
                       );
                   }
 
 
-                  return null;
-              }
-
-
-              private static Field findField(
-                      Class<?> clazz,
-                      String fieldName) {
-
-                  Class<?> current = clazz;
-
-
-                  while (current != null) {
-
-                      try {
-
-                          Field field =
-                                  current.getDeclaredField(
-                                          fieldName
-                                  );
-
-                          field.setAccessible(true);
-
-                          return field;
-
-                      } catch (NoSuchFieldException ignored) {
-
-                          current =
-                                  current.getSuperclass();
-                      }
-                  }
-
-
+                  /*
+                   * handleLongPressOnHome() returns void,
+                   * so null is correct.
+                   *
+                   * Most importantly:
+                   *
+                   * DO NOT call chain.proceed()
+                   *
+                   * This prevents Gemini/Assistant from executing.
+                   */
                   return null;
               }
           }
           EOF
 
 
-      # ============================================================
-      # BUILD
-      # ============================================================
       - name: Build APK
         run: |
+
           gradle wrapper --gradle-version 8.9
+
           ./gradlew assembleDebug --no-daemon
 
 
-      # ============================================================
-      # VERIFY
-      # ============================================================
       - name: Verify APK
         run: |
 
-          echo "======================================"
+          echo "=============================="
           echo "APK"
-          echo "======================================"
+          echo "=============================="
 
           ls -lh app/build/outputs/apk/debug/
 
 
           echo
-          echo "======================================"
+          echo "=============================="
           echo "XPOSED FILES"
-          echo "======================================"
+          echo "=============================="
 
           unzip -l \
-            app/build/outputs/apk/debug/*.apk \
-            | grep -E \
-            'META-INF/xposed|GTabHomeC2S'
+              app/build/outputs/apk/debug/*.apk \
+              | grep -E \
+              'META-INF/xposed|GTabHomeC2S'
 
 
           echo
-          echo "======================================"
+          echo "=============================="
           echo "module.prop"
-          echo "======================================"
+          echo "=============================="
 
           unzip -p \
-            app/build/outputs/apk/debug/*.apk \
-            META-INF/xposed/module.prop
+              app/build/outputs/apk/debug/*.apk \
+              META-INF/xposed/module.prop
 
 
           echo
-          echo "======================================"
+          echo "=============================="
           echo "scope.list"
-          echo "======================================"
+          echo "=============================="
 
           unzip -p \
-            app/build/outputs/apk/debug/*.apk \
-            META-INF/xposed/scope.list
+              app/build/outputs/apk/debug/*.apk \
+              META-INF/xposed/scope.list
 
 
           echo
-          echo "======================================"
+          echo "=============================="
           echo "java_init.list"
-          echo "======================================"
+          echo "=============================="
 
           unzip -p \
-            app/build/outputs/apk/debug/*.apk \
-            META-INF/xposed/java_init.list
+              app/build/outputs/apk/debug/*.apk \
+              META-INF/xposed/java_init.list
 
 
-      # ============================================================
-      # ARTIFACT
-      # ============================================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
