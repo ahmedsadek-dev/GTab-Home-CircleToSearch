@@ -1,0 +1,139 @@
+name: Build G-Tab Home Circle to Search
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create Android project
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/com/ahmedsadek/gtabc2s
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/resources/META-INF/xposed
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name='GTab-Home-CircleToSearch'
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.ahmedsadek.gtabc2s'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.ahmedsadek.gtabc2s'
+                  minSdk 29
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0'
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+          }
+
+          dependencies {
+              compileOnly 'io.github.libxposed:api:102.0.0'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:theme="@style/AppTheme"
+                  android:label="G-Tab Home Circle to Search" />
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="AppTheme"
+                  parent="android:style/Theme.Material.Light.NoActionBar" />
+          </resources>
+          EOF
+
+          cat > app/src/main/resources/META-INF/xposed/java_init.list <<'EOF'
+          com.ahmedsadek.gtabc2s.GTabHomeC2S
+          EOF
+
+          cat > app/src/main/resources/META-INF/xposed/module.prop <<'EOF'
+          minApiVersion=102
+          targetApiVersion=102
+          staticScope=true
+          exceptionMode=protective
+          autoHotReload=false
+          EOF
+
+          cat > app/src/main/resources/META-INF/xposed/scope.list <<'EOF'
+          android
+          EOF
+
+          cat > app/src/main/java/com/ahmedsadek/gtabc2s/GTabHomeC2S.java <<'EOF'
+          package com.ahmedsadek.gtabc2s;
+
+          import android.app.ContextualSearchManager;
+          import android.content.Context;
+
+          import java.lang.reflect.Field;
+          import java.lang.reflect.Method;
+          import java.lang.reflect.Modifier;
+
+          import io.github.libxposed.api.XposedInterface;
+          import io.github.libxposed.api.XposedModule;
+          import io.github.libxposed.api.XposedModuleInterface;
+
+          public final class GTabHomeC2S extends XposedModule {
+
+              private static final String HANDLER =
+                  "com.android.server.policy.PhoneWindowManager$DisplayHomeButtonHandler";
+
+              private static final String METHOD =
+                  "handleLongPressOnHome";
+
+              private static final int ENTRYPOINT_LONG_PRESS_HOME = 2;
+
+              @Override
+              public void onSystemServerStarting(
+                      X
