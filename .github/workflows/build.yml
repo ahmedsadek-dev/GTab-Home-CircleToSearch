@@ -18,15 +18,146 @@ jobs:
 
           cat > settings.gradle <<'EOF'
           pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
+            repositories {
+              google()
+              mavenCentral()
+              gradlePluginPortal()
+            }
+          }
+          dependencyResolutionManagement {
+            repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+            repositories {
+              google()
+              mavenCentral()
+            }
+          }
+          rootProject.name = "GTab-Home-CircleToSearch"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+            id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+            id 'com.android.application'
           }
 
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  m
+          android {
+            namespace 'com.ahmedsadek.gtabc2s'
+            compileSdk 35
+
+            defaultConfig {
+              applicationId 'com.ahmedsadek.gtabc2s'
+              minSdk 29
+              targetSdk 35
+              versionCode 1
+              versionName '1.0'
+            }
+          }
+
+          dependencies {
+            compileOnly 'io.github.libxposed:api:102.0.0'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <application android:theme="@style/AppTheme"
+              android:label="G-Tab Home Circle to Search"/>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+            <style name="AppTheme"
+              parent="android:style/Theme.Material.Light.NoActionBar"/>
+          </resources>
+          EOF
+
+          cat > app/src/main/resources/META-INF/xposed/java_init.list <<'EOF'
+          com.ahmedsadek.gtabc2s.GTabHomeC2S
+          EOF
+
+          cat > app/src/main/resources/META-INF/xposed/module.prop <<'EOF'
+          minApiVersion=102
+          targetApiVersion=102
+          staticScope=true
+          exceptionMode=protective
+          EOF
+
+          cat > app/src/main/resources/META-INF/xposed/scope.list <<'EOF'
+          android
+          EOF
+
+          cat > app/src/main/java/com/ahmedsadek/gtabc2s/GTabHomeC2S.java <<'EOF'
+          package com.ahmedsadek.gtabc2s;
+
+          import android.content.Context;
+          import io.github.libxposed.api.XposedModule;
+          import io.github.libxposed.api.XposedModuleInterface;
+          import java.lang.reflect.*;
+
+          public class GTabHomeC2S extends XposedModule {
+            static final String CLS =
+              "com.android.server.policy.PhoneWindowManager$DisplayHomeButtonHandler";
+
+            public void onSystemServerStarting(
+                XposedModuleInterface.SystemServerStartingParam p) {
+              try {
+                Class<?> c = p.getClassLoader().loadClass(CLS);
+                for (Method m : c.getDeclaredMethods()) {
+                  if (!m.getName().equals("handleLongPressOnHome") ||
+                      Modifier.isStatic(m.getModifiers())) continue;
+
+                  m.setAccessible(true);
+                  hook(m).intercept(x -> {
+                    try {
+                      Object h = x.getThisObject();
+                      Context ctx = null;
+                      Class<?> z = h.getClass();
+
+                      while (z != null && ctx == null) {
+                        try {
+                          Field f = z.getDeclaredField("mContext");
+                          f.setAccessible(true);
+                          Object v = f.get(h);
+                          if (v instanceof Context) ctx = (Context)v;
+                        } catch (Throwable ignored) {}
+                        z = z.getSuperclass();
+                      }
+
+                      if (ctx != null) {
+                        Object cs = ctx.getSystemService("contextual_search");
+                        if (cs != null) {
+                          Method s = cs.getClass().getMethod(
+                            "startContextualSearch", int.class);
+                          s.invoke(cs, 2);
+                        }
+                      }
+                    } catch (Throwable ignored) {}
+                    return null;
+                  });
+                }
+              } catch (Throwable ignored) {}
+            }
+          }
+          EOF
+
+      - name: Build APK
+        run: |
+          gradle wrapper --gradle-version 8.9
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTab-Home-CircleToSearch-APK
+          path: app/build/outputs/apk/debug/*.apk
