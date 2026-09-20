@@ -3,16 +3,14 @@ name: Build G-Tab Home Circle to Search
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Create Android project
-        shell: bash
+      - name: Create project
         run: |
           mkdir -p app/src/main/java/com/ahmedsadek/gtabc2s
           mkdir -p app/src/main/res/values
@@ -35,8 +33,8 @@ jobs:
               }
           }
 
-          rootProject.name='GTab-Home-CircleToSearch'
-          include ':app'
+          rootProject.name = "GTab-Home-CircleToSearch"
+          include(":app")
           EOF
 
           cat > build.gradle <<'EOF'
@@ -113,18 +111,19 @@ jobs:
           cat > app/src/main/java/com/ahmedsadek/gtabc2s/GTabHomeC2S.java <<'EOF'
           package com.ahmedsadek.gtabc2s;
 
-          import android.app.ContextualSearchManager;
           import android.content.Context;
+          import android.util.Log;
 
           import java.lang.reflect.Field;
           import java.lang.reflect.Method;
           import java.lang.reflect.Modifier;
 
-          import io.github.libxposed.api.XposedInterface;
           import io.github.libxposed.api.XposedModule;
           import io.github.libxposed.api.XposedModuleInterface;
 
           public final class GTabHomeC2S extends XposedModule {
+
+              private static final String TAG = "GTabHomeC2S";
 
               private static final String HANDLER =
                   "com.android.server.policy.PhoneWindowManager$DisplayHomeButtonHandler";
@@ -136,4 +135,174 @@ jobs:
 
               @Override
               public void onSystemServerStarting(
-                      X
+                      XposedModuleInterface.SystemServerStartingParam param) {
+
+                  try {
+                      Class<?> cls =
+                          param.getClassLoader().loadClass(HANDLER);
+
+                      int count = 0;
+
+                      for (Method method : cls.getDeclaredMethods()) {
+
+                          if (!METHOD.equals(method.getName())) {
+                              continue;
+                          }
+
+                          if (Modifier.isStatic(method.getModifiers())) {
+                              continue;
+                          }
+
+                          method.setAccessible(true);
+
+                          hook(method).intercept(chain -> {
+                              launchCircleToSearch(
+                                  chain.getThisObject()
+                              );
+                              return null;
+                          });
+
+                          count++;
+                      }
+
+                      Log.i(TAG,
+                          "Installed Home hooks: " + count);
+
+                  } catch (Throwable e) {
+
+                      Log.e(TAG,
+                          "Failed to install Home hook",
+                          e);
+                  }
+              }
+
+              private void launchCircleToSearch(
+                      Object handler) {
+
+                  try {
+
+                      Context context =
+                          findSystemContext(handler);
+
+                      if (context == null) {
+                          throw new Exception(
+                              "PhoneWindowManager context not found"
+                          );
+                      }
+
+                      Object manager =
+                          context.getSystemService(
+                              "contextual_search"
+                          );
+
+                      if (manager == null) {
+                          throw new Exception(
+                              "ContextualSearchManager unavailable"
+                          );
+                      }
+
+                      Method start =
+                          manager.getClass()
+                              .getMethod(
+                                  "startContextualSearch",
+                                  int.class
+                              );
+
+                      start.invoke(
+                          manager,
+                          ENTRYPOINT_LONG_PRESS_HOME
+                      );
+
+                      Log.i(TAG,
+                          "Circle to Search launched");
+
+                  } catch (Throwable e) {
+
+                      Log.e(TAG,
+                          "Failed to launch Circle to Search",
+                          e);
+                  }
+              }
+
+              private static Context findSystemContext(
+                      Object handler)
+                      throws Exception {
+
+                  if (handler == null) {
+                      return null;
+                  }
+
+                  Class<?> cls =
+                      handler.getClass();
+
+                  Field outer = null;
+
+                  while (cls != null) {
+
+                      try {
+                          outer =
+                              cls.getDeclaredField("this$0");
+                          break;
+
+                      } catch (NoSuchFieldException e) {
+                          cls = cls.getSuperclass();
+                      }
+                  }
+
+                  if (outer == null) {
+                      return null;
+                  }
+
+                  outer.setAccessible(true);
+
+                  Object pwm =
+                      outer.get(handler);
+
+                  if (pwm == null) {
+                      return null;
+                  }
+
+                  cls = pwm.getClass();
+
+                  while (cls != null) {
+
+                      try {
+
+                          Field contextField =
+                              cls.getDeclaredField("mContext");
+
+                          contextField.setAccessible(true);
+
+                          Object value =
+                              contextField.get(pwm);
+
+                          if (value instanceof Context) {
+                              return (Context) value;
+                          }
+
+                      } catch (NoSuchFieldException e) {
+
+                          cls =
+                              cls.getSuperclass();
+                      }
+                  }
+
+                  return null;
+              }
+          }
+          EOF
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK
+        run: |
+          gradle assembleRelease --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTab-Home-CircleToSearch-APK
+          path: app/build/outputs/apk/release/*.apk
