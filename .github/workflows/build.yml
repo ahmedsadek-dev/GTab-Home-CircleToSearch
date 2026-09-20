@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "build.yml"
+      - ".github/workflows/build.yml"
 
 jobs:
   build:
@@ -15,69 +15,76 @@ jobs:
         run: |
           mkdir -p app/src/main/java/com/ahmedsadek/gtabc2s
           mkdir -p app/src/main/resources/META-INF/xposed
-
-          printf '%s\n' \
-            'pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }' \
-            'dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }' \
-            'rootProject.name="GTabHomeC2S"' \
-            'include ":app"' \
-            > settings.gradle
-
-          printf '%s\n' \
-            'plugins {' \
-            '    id "com.android.application" version "8.7.3" apply false' \
-            '}' \
-            > build.gradle
-
-          printf '%s\n' \
-            'plugins {' \
-            '    id "com.android.application"' \
-            '}' \
-            '' \
-            'android {' \
-            '    namespace "com.ahmedsadek.gtabc2s"' \
-            '    compileSdk 35' \
-            '' \
-            '    defaultConfig {' \
-            '        applicationId "com.ahmedsadek.gtabc2s"' \
-            '        minSdk 26' \
-            '        targetSdk 35' \
-            '        versionCode 1' \
-            '        versionName "1.0"' \
-            '    }' \
-            '' \
-            '    buildTypes {' \
-            '        debug {' \
-            '            minifyEnabled false' \
-            '            shrinkResources false' \
-            '        }' \
-            '    }' \
-            '}' \
-            '' \
-            'dependencies {' \
-            '    compileOnly "io.github.libxposed:api:102.0.0"' \
-            '}' \
-            > app/build.gradle
-
-          printf '%s\n' \
-            '<manifest xmlns:android="http://schemas.android.com/apk/res/android">' \
-            '    <application' \
-            '        android:theme="@style/AppTheme"' \
-            '        android:label="G-Tab Home Circle to Search"' \
-            '        android:description="@string/app_description">' \
-            '    </application>' \
-            '</manifest>' \
-            > app/src/main/AndroidManifest.xml
-
           mkdir -p app/src/main/res/values
 
-          printf '%s\n' \
-            '<resources>' \
-            '    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">' \
-            '    </style>' \
-            '    <string name="app_description">Redirect long-press Home to Android Contextual Search.</string>' \
-            '</resources>' \
-            > app/src/main/res/values/strings.xml
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "GTabHomeC2S"
+          include(":app")
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id "com.android.application" version "8.7.3" apply false
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id "com.android.application"
+          }
+
+          android {
+              namespace "com.ahmedsadek.gtabc2s"
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId "com.ahmedsadek.gtabc2s"
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 2
+                  versionName "1.1"
+              }
+
+              buildTypes {
+                  debug {
+                      minifyEnabled false
+                      shrinkResources false
+                  }
+              }
+          }
+
+          dependencies {
+              compileOnly "io.github.libxposed:api:102.0.0"
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="G-Tab Home Circle to Search"
+                  android:description="@string/app_description" />
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_description">Redirect long-press Home to Android Contextual Search.</string>
+          </resources>
+          EOF
 
           printf '%s\n' \
             'com.ahmedsadek.gtabc2s.GTabHomeC2S' \
@@ -87,19 +94,20 @@ jobs:
             'system' \
             > app/src/main/resources/META-INF/xposed/scope.list
 
-          printf '%s\n' \
-            'minApiVersion=102' \
-            'targetApiVersion=102' \
-            'staticScope=true' \
-            'exceptionMode=protective' \
-            'autoHotReload=false' \
-            > app/src/main/resources/META-INF/xposed/module.prop
+          cat > app/src/main/resources/META-INF/xposed/module.prop <<'EOF'
+          minApiVersion=102
+          targetApiVersion=102
+          staticScope=true
+          exceptionMode=protective
+          autoHotReload=false
+          EOF
 
       - name: Create module
         run: |
           cat > app/src/main/java/com/ahmedsadek/gtabc2s/GTabHomeC2S.java <<'EOF'
           package com.ahmedsadek.gtabc2s;
 
+          import android.app.ActivityThread;
           import android.content.Context;
           import android.util.Log;
 
@@ -109,74 +117,60 @@ jobs:
           import io.github.libxposed.api.XposedModule;
           import io.github.libxposed.api.XposedModuleInterface;
 
-          public class GTabHomeC2S extends XposedModule {
-
+          public final class GTabHomeC2S extends XposedModule {
               private static final String TAG = "GTabHomeC2S";
-
-              public GTabHomeC2S() {
-                  super();
-              }
 
               @Override
               public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
-                  log("MODULE LOADED");
+                  Log.i(TAG, "MODULE LOADED");
               }
 
               @Override
-              public void onPackageLoaded(XposedModuleInterface.PackageLoadedParam param) {
-                  String pkg = param.getPackageName();
-
-                  log("PACKAGE LOADED: " + pkg);
-
-                  if (!"android".equals(pkg)) {
-                      return;
-                  }
+              public void onSystemServerStarting(
+                      XposedModuleInterface.SystemServerStartingParam param) {
+                  Log.i(TAG, "SYSTEM SERVER STARTING");
 
                   try {
-                      Class<?> clazz = Class.forName(
-                              "com.android.server.policy.PhoneWindowManager$DisplayHomeButtonHandler",
-                              false,
-                              param.getClassLoader()
-                      );
+                      ClassLoader cl = param.getClassLoader();
 
-                      log("TARGET CLASS FOUND: " + clazz.getName());
+                      Class<?> target = cl.loadClass(
+                              "com.android.server.policy.PhoneWindowManager$DisplayHomeButtonHandler");
 
-                      for (Method m : clazz.getDeclaredMethods()) {
-                          if (m.getName().equals("handleLongPressOnHome")) {
-                              log("FOUND METHOD: " + m.toGenericString());
+                      Log.i(TAG, "TARGET CLASS FOUND: " + target.getName());
 
-                              hookLongPress(m);
+                      boolean found = false;
+
+                      for (Method m : target.getDeclaredMethods()) {
+                          if (!m.getName().equals("handleLongPressOnHome")) {
+                              continue;
                           }
+
+                          found = true;
+                          Log.i(TAG, "FOUND METHOD: " + m.toGenericString());
+
+                          hook(m, new HomeHook());
+                          Log.i(TAG, "HOOK INSTALLED");
                       }
 
+                      if (!found) {
+                          Log.e(TAG, "handleLongPressOnHome NOT FOUND");
+                      }
                   } catch (Throwable t) {
-                      logError("INIT ERROR", t);
+                      Log.e(TAG, "INIT ERROR", t);
                   }
               }
 
-              private void hookLongPress(Method method) {
-                  try {
-                      hook(method, new Hooker());
-                      log("HOOK INSTALLED: " + method.toGenericString());
-                  } catch (Throwable t) {
-                      logError("HOOK ERROR", t);
-                  }
-              }
-
-              private static class Hooker implements XposedInterface.Hooker {
-
-                  public void before(
-                          XposedInterface.BeforeHookCallback callback
-                  ) {
-                      log("HOME LONG PRESS CALLED");
+              private static final class HomeHook implements XposedInterface.Hooker {
+                  @Override
+                  public void before(XposedInterface.BeforeHookCallback callback) {
+                      Log.i(TAG, "HOME LONG PRESS CALLED");
 
                       try {
-                          Object handler = callback.getThisObject();
-
-                          Context context = findContext(handler);
+                          Context context = ActivityThread.currentActivityThread()
+                                  .getSystemContext();
 
                           if (context == null) {
-                              log("CONTEXT NOT FOUND");
+                              Log.e(TAG, "SYSTEM CONTEXT NULL");
                               return;
                           }
 
@@ -184,72 +178,36 @@ jobs:
                                   context.getSystemService("contextual_search");
 
                           if (service == null) {
-                              log("CONTEXTUAL SEARCH SERVICE NULL");
+                              Log.e(TAG, "CONTEXTUAL SEARCH SERVICE NULL");
                               return;
                           }
 
-                          Method target = null;
+                          Method start = null;
 
                           for (Method m : service.getClass().getMethods()) {
                               if (m.getName().equals("startContextualSearch")
-                                      && m.getParameterTypes().length == 1
+                                      && m.getParameterCount() == 1
                                       && m.getParameterTypes()[0] == int.class) {
-                                  target = m;
+                                  start = m;
                                   break;
                               }
                           }
 
-                          if (target == null) {
-                              log("startContextualSearch(int) NOT FOUND");
+                          if (start == null) {
+                              Log.e(TAG, "startContextualSearch(int) NOT FOUND");
                               return;
                           }
 
-                          log("CALLING CONTEXTUAL SEARCH ENTRYPOINT 2");
-
-                          target.invoke(service, 2);
-
-                          log("CONTEXTUAL SEARCH STARTED");
+                          Log.i(TAG, "START CONTEXTUAL SEARCH entrypoint=2");
+                          start.setAccessible(true);
+                          start.invoke(service, 2);
+                          Log.i(TAG, "CONTEXTUAL SEARCH STARTED");
 
                           callback.returnAndSkip(null);
-
                       } catch (Throwable t) {
-                          logError("HOME HOOK ERROR", t);
+                          Log.e(TAG, "HOME HOOK ERROR", t);
                       }
                   }
-
-                  private Context findContext(Object obj) {
-                      if (obj == null) {
-                          return null;
-                      }
-
-                      Class<?> c = obj.getClass();
-
-                      while (c != null) {
-                          try {
-                              java.lang.reflect.Field f = c.getDeclaredField("mContext");
-                              f.setAccessible(true);
-
-                              Object value = f.get(obj);
-
-                              if (value instanceof Context) {
-                                  return (Context) value;
-                              }
-                          } catch (Throwable ignored) {
-                          }
-
-                          c = c.getSuperclass();
-                      }
-
-                      return null;
-                  }
-              }
-
-              private static void log(String msg) {
-                  Log.i(TAG, msg);
-              }
-
-              private static void logError(String msg, Throwable t) {
-                  Log.e(TAG, msg, t);
               }
           }
           EOF
@@ -263,8 +221,14 @@ jobs:
         run: |
           echo "===== APK ====="
           ls -lh app/build/outputs/apk/debug/
-          echo "===== XPOSED FILES ====="
-          unzip -l app/build/outputs/apk/debug/*.apk | grep -E 'META-INF/xposed|GTabHomeC2S'
+          echo "===== XPOSED METADATA ====="
+          unzip -p app/build/outputs/apk/debug/*.apk META-INF/xposed/module.prop
+          echo
+          echo "--- scope ---"
+          unzip -p app/build/outputs/apk/debug/*.apk META-INF/xposed/scope.list
+          echo
+          echo "--- java_init ---"
+          unzip -p app/build/outputs/apk/debug/*.apk META-INF/xposed/java_init.list
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
