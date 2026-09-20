@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Create project
         run: |
           mkdir -p app/src/main/java/com/ahmedsadek/gtabc2s
@@ -24,6 +25,7 @@ jobs:
               gradlePluginPortal()
             }
           }
+
           dependencyResolutionManagement {
             repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
             repositories {
@@ -31,10 +33,349 @@ jobs:
               mavenCentral()
             }
           }
+
           rootProject.name = "GTab-Home-CircleToSearch"
           include(":app")
           EOF
 
+          cat > build.gradle <<'EOF'
+          plugins {
+            id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+            id 'com.android.application'
+          }
+
+          android {
+            namespace 'com.ahmedsadek.gtabc2s'
+            compileSdk 35
+
+            defaultConfig {
+              applicationId 'com.ahmedsadek.gtabc2s'
+              minSdk 29
+              targetSdk 35
+              versionCode 2
+              versionName '1.1-debug'
+            }
+          }
+
+          dependencies {
+            compileOnly 'io.github.libxposed:api:102.0.0'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+            <application
+              android:theme="@style/AppTheme"
+              android:label="G-Tab Home Circle to Search"/>
+
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+
+            <style
+              name="AppTheme"
+              parent="android:style/Theme.Material.Light.NoActionBar"/>
+
+          </resources>
+          EOF
+
+          cat > app/src/main/resources/META-INF/xposed/java_init.list <<'EOF'
+          com.ahmedsadek.gtabc2s.GTabHomeC2S
+          EOF
+
+          cat > app/src/main/resources/META-INF/xposed/module.prop <<'EOF'
+          minApiVersion=102
+          targetApiVersion=102
+          staticScope=true
+          exceptionMode=protective
+          EOF
+
+          cat > app/src/main/resources/META-INF/xposed/scope.list <<'EOF'
+          android
+          EOF
+
+          cat > app/src/main/java/com/ahmedsadek/gtabc2s/GTabHomeC2S.java <<'EOF'
+          package com.ahmedsadek.gtabc2s;
+
+          import android.content.Context;
+          import android.util.Log;
+
+          import io.github.libxposed.api.XposedModule;
+          import io.github.libxposed.api.XposedModuleInterface;
+
+          import java.lang.reflect.Field;
+          import java.lang.reflect.Method;
+          import java.lang.reflect.Modifier;
+
+          public class GTabHomeC2S extends XposedModule {
+
+            private static final String TAG = "GTabHomeC2S";
+
+            private static final String TARGET_CLASS =
+                "com.android.server.policy.PhoneWindowManager$DisplayHomeButtonHandler";
+
+
+            private Context findContext(Object start) {
+
+              Object current = start;
+
+              for (int depth = 0; depth < 5 && current != null; depth++) {
+
+                Class<?> clazz = current.getClass();
+
+                while (clazz != null) {
+
+                  try {
+
+                    Field field = clazz.getDeclaredField("mContext");
+                    field.setAccessible(true);
+
+                    Object value = field.get(current);
+
+                    if (value instanceof Context) {
+                      return (Context) value;
+                    }
+
+                  } catch (Throwable ignored) {
+                  }
+
+                  clazz = clazz.getSuperclass();
+                }
+
+
+                Object outer = null;
+
+                clazz = current.getClass();
+
+                while (clazz != null && outer == null) {
+
+                  for (Field field : clazz.getDeclaredFields()) {
+
+                    try {
+
+                      if (field.getName().equals("this$0")) {
+
+                        field.setAccessible(true);
+                        outer = field.get(current);
+
+                        break;
+                      }
+
+                    } catch (Throwable ignored) {
+                    }
+                  }
+
+                  clazz = clazz.getSuperclass();
+                }
+
+
+                if (outer == null) {
+                  break;
+                }
+
+                current = outer;
+              }
+
+              return null;
+            }
+
+
+            public void onSystemServerStarting(
+                XposedModuleInterface.SystemServerStartingParam param) {
+
+              try {
+
+                ClassLoader classLoader = param.getClassLoader();
+
+                Class<?> targetClass =
+                    classLoader.loadClass(TARGET_CLASS);
+
+                Log.i(TAG,
+                    "SUCCESS: Loaded " + TARGET_CLASS);
+
+
+                for (Method method : targetClass.getDeclaredMethods()) {
+
+                  if (!method.getName().equals("handleLongPressOnHome")) {
+                    continue;
+                  }
+
+                  if (Modifier.isStatic(method.getModifiers())) {
+                    continue;
+                  }
+
+
+                  method.setAccessible(true);
+
+                  Log.i(TAG,
+                      "FOUND METHOD: " + method.toGenericString());
+
+
+                  hook(method).intercept(chain -> {
+
+                    Log.i(TAG,
+                        "========== HOME LONG PRESS ==========");
+
+
+                    try {
+
+                      Object thisObject =
+                          chain.getThisObject();
+
+
+                      if (thisObject == null) {
+
+                        Log.e(TAG,
+                            "ERROR: thisObject is NULL");
+
+                        return null;
+                      }
+
+
+                      Log.i(TAG,
+                          "thisObject = "
+                          + thisObject.getClass().getName());
+
+
+                      Context context =
+                          findContext(thisObject);
+
+
+                      if (context == null) {
+
+                        Log.e(TAG,
+                            "ERROR: Could not find Context");
+
+                        return null;
+                      }
+
+
+                      Log.i(TAG,
+                          "SUCCESS: Context found = "
+                          + context.getClass().getName());
+
+
+                      Object contextualSearch =
+                          context.getSystemService(
+                              "contextual_search");
+
+
+                      if (contextualSearch == null) {
+
+                        Log.e(TAG,
+                            "ERROR: contextual_search service is NULL");
+
+                        return null;
+                      }
+
+
+                      Log.i(TAG,
+                          "SUCCESS: contextual_search service = "
+                          + contextualSearch.getClass().getName());
+
+
+                      Method startMethod = null;
+
+                      Class<?> serviceClass =
+                          contextualSearch.getClass();
+
+
+                      while (
+                          serviceClass != null
+                          && startMethod == null) {
+
+                        try {
+
+                          startMethod =
+                              serviceClass.getDeclaredMethod(
+                                  "startContextualSearch",
+                                  int.class);
+
+                          startMethod.setAccessible(true);
+
+                        } catch (NoSuchMethodException e) {
+
+                          serviceClass =
+                              serviceClass.getSuperclass();
+                        }
+                      }
+
+
+                      if (startMethod == null) {
+
+                        Log.e(TAG,
+                            "ERROR: startContextualSearch(int) NOT FOUND");
+
+                        return null;
+                      }
+
+
+                      Log.i(TAG,
+                          "SUCCESS: Found startContextualSearch(int)");
+
+
+                      Log.i(TAG,
+                          "CALLING startContextualSearch(2)");
+
+
+                      Object result =
+                          startMethod.invoke(
+                              contextualSearch,
+                              2);
+
+
+                      Log.i(TAG,
+                          "SUCCESS: startContextualSearch returned "
+                          + String.valueOf(result));
+
+
+                    } catch (Throwable error) {
+
+                      Log.e(TAG,
+                          "========== HOOK ERROR ==========",
+                          error);
+                    }
+
+
+                    return null;
+                  });
+                }
+
+
+              } catch (Throwable error) {
+
+                Log.e(TAG,
+                    "========== INIT ERROR ==========",
+                    error);
+              }
+            }
+          }
+          EOF
+
+
+      - name: Build APK
+        run: |
+          gradle wrapper --gradle-version 8.9
+          ./gradlew assembleDebug --no-daemon
+
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTab-Home-CircleToSearch-Debug
+          path: app/build/outputs/apk/debug/*.apk
           cat > build.gradle <<'EOF'
           plugins {
             id 'com.android.application' version '8.7.3' apply false
